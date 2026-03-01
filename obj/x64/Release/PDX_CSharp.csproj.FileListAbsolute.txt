@@ -1,0 +1,1 @@
+D:\Test\PDX_CSharp\obj\x64\Release\PDX_CSharp.csprojResolveAssemblyReference.cache

@@ -1,0 +1,40 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net47</TargetFramework>
+    <AssemblyName>PDX</AssemblyName>
+    <RootNamespace>PDX_CSharp</RootNamespace>
+    <OutputType>Library</OutputType>
+    <PlatformTarget>x64</PlatformTarget>
+    <LangVersion>7.3</LangVersion>
+    <Optimize>true</Optimize>
+    <!-- 使用本机已安装的 .NET Framework 4.x 程序集，无需下载 targeting packs -->
+    <FrameworkPathOverride>C:\Windows\Microsoft.NET\Framework64\v4.0.30319\</FrameworkPathOverride>
+    <!-- 禁止 dotnet restore 联网下载 .NETFramework reference assemblies -->
+    <AutoGenerateBindingRedirects>false</AutoGenerateBindingRedirects>
+  </PropertyGroup>
+
+  <!-- AutoCAD 2018 SDK 引用（CopyLocal=false 避免覆盖 AutoCAD 自身 DLL）-->
+  <ItemGroup>
+    <Reference Include="AcCoreMgd">
+      <HintPath>D:\app\cad18\AutoCAD 2018\AcCoreMgd.dll</HintPath>
+      <Private>False</Private>
+    </Reference>
+    <Reference Include="AcDbMgd">
+      <HintPath>D:\app\cad18\AutoCAD 2018\AcDbMgd.dll</HintPath>
+      <Private>False</Private>
+    </Reference>
+    <Reference Include="AcMgd">
+      <HintPath>D:\app\cad18\AutoCAD 2018\AcMgd.dll</HintPath>
+      <Private>False</Private>
+    </Reference>
+    <Reference Include="System" />
+    <Reference Include="System.Core" />
+  </ItemGroup>
+
+  <!-- 将规则 JSON 文件复制到输出目录 -->
+  <ItemGroup>
+    <None Include="resources\pdx_rules.json" CopyToOutputDirectory="Always" />
+  </ItemGroup>
+
+</Project>

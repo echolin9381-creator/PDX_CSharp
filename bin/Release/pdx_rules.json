@@ -1,0 +1,76 @@
+{
+    "breakers": [
+        {
+            "currentLimit": 6,
+            "model": "C6",
+            "cable": "1.5mm²",
+            "conduit": "SC15"
+        },
+        {
+            "currentLimit": 10,
+            "model": "C10",
+            "cable": "1.5mm²",
+            "conduit": "SC15"
+        },
+        {
+            "currentLimit": 16,
+            "model": "C16",
+            "cable": "2.5mm²",
+            "conduit": "SC20"
+        },
+        {
+            "currentLimit": 20,
+            "model": "C20",
+            "cable": "4mm²",
+            "conduit": "SC20"
+        },
+        {
+            "currentLimit": 25,
+            "model": "C25",
+            "cable": "4mm²",
+            "conduit": "SC25"
+        },
+        {
+            "currentLimit": 32,
+            "model": "C32",
+            "cable": "6mm²",
+            "conduit": "SC25"
+        },
+        {
+            "currentLimit": 40,
+            "model": "C40",
+            "cable": "10mm²",
+            "conduit": "SC32"
+        },
+        {
+            "currentLimit": 50,
+            "model": "C50",
+            "cable": "16mm²",
+            "conduit": "SC40"
+        },
+        {
+            "currentLimit": 63,
+            "model": "C63",
+            "cable": "25mm²",
+            "conduit": "SC40"
+        },
+        {
+            "currentLimit": 100,
+            "model": "C100",
+            "cable": "35mm²",
+            "conduit": "SC50"
+        },
+        {
+            "currentLimit": 160,
+            "model": "C160",
+            "cable": "70mm²",
+            "conduit": "SC65"
+        },
+        {
+            "currentLimit": 250,
+            "model": "C250",
+            "cable": "120mm²",
+            "conduit": "SC80"
+        }
+    ]
+}
