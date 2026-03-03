@@ -1,24 +1,24 @@
 @echo off
+chcp 65001 >nul
 REM ================================================================
-REM  PDX 插件直接编译脚本（绕过 MSBuild/NuGet）
-REM  使用 dotnet SDK 内置的 Roslyn csc.dll 直接编译
-REM  输出: bin\Release\PDX.dll
+REM  PDX ?????????????????MSBuild/NuGet??
+REM  ??? dotnet SDK ?????Roslyn csc.dll ??????
+REM  ???: bin\Release\PDX.dll
 REM ================================================================
 setlocal
 
-set DOTNET=dotnet
-set CSC=C:\Program Files\dotnet\sdk\8.0.416\Roslyn\bincore\csc.dll
+set CSC=C:\Windows\Microsoft.NET\Framework64\v4.0.30319\csc.exe
 set ACAD_DIR=D:\app\cad18\AutoCAD 2018
 set OUT_DIR=bin\Release
 set NETFX_DIR=C:\Windows\Microsoft.NET\Framework64\v4.0.30319
 
 if not exist "%OUT_DIR%" mkdir "%OUT_DIR%"
 
-echo [INFO] 使用 Roslyn csc.dll: %CSC%
-echo [INFO] AutoCAD SDK: %ACAD_DIR%
-echo [INFO] 开始编译...
+echo [INFO] ??? csc.exe: "%CSC%"
+echo [INFO] AutoCAD SDK: "%ACAD_DIR%"
+echo [INFO] ???????..
 
-"%DOTNET%" exec "%CSC%" ^
+"%CSC%" ^
   /target:library ^
   /out:"%OUT_DIR%\PDX.dll" ^
   /platform:x64 ^
@@ -34,32 +34,52 @@ echo [INFO] 开始编译...
   src\Models\BreakerRule.cs ^
   src\Models\LoopData.cs ^
   src\Models\MainCircuitData.cs ^
+  src\Models\TopologyModels.cs ^
   src\Rules\RuleEngine.cs ^
   src\Calculation\CalculationEngine.cs ^
+  src\Calculation\TopologyBuilder.cs ^
   src\Drawing\LayerHelper.cs ^
   src\Drawing\DrawingEngine.cs ^
   src\Services\PdxService.cs ^
+  src\Core\Models\LayoutConfig.cs ^
+  src\Core\Models\DiagramModel.cs ^
+  src\Core\Models\TemplateDefinition.cs ^
+  src\Core\Models\TopologyModel.cs ^
+  src\Core\Interfaces\ICoreInterfaces.cs ^
+  src\Core\Calculation\ElectricalCalculationEngine.cs ^
+  src\Templates\VerticalBusTemplate.cs ^
+  src\Templates\DualBusTemplate.cs ^
+  src\Templates\TemplateRegistry.cs ^
+  src\Infrastructure\AI\MockAiAnalyzer.cs ^
+  src\Infrastructure\AI\GptAnalyzer.cs ^
+  src\Infrastructure\Excel\CsvExcelTemplateBuilder.cs ^
+  src\Infrastructure\Excel\CsvExcelImporter.cs ^
+  src\Infrastructure\CAD\AutoCadRenderer.cs ^
+  src\Infrastructure\CAD\ConsoleCadRenderer.cs ^
+  src\Application\Services\DiagramGenerationService.cs ^
+  src\Application\Services\ExcelWorkflowService.cs ^
+  src\Application\Services\DirectEntryWorkflowService.cs ^
   src\Commands\PdxCommands.cs
 
 if %ERRORLEVEL% equ 0 (
-    REM 复制规则文件到输出目录
+    REM ?????????????????
     copy /y "resources\pdx_rules.json" "%OUT_DIR%\pdx_rules.json" >nul
     echo.
     echo ============================================================
-    echo  [成功] PDX.dll 已生成！
-    echo  输出目录: %OUT_DIR%\
+    echo  [???] PDX.dll ??????
+    echo  ??????: %OUT_DIR%\
     echo    - PDX.dll
     echo    - pdx_rules.json
     echo.
-    echo  AutoCAD 加载步骤:
-    echo  1. 在 AutoCAD 命令行输入: NETLOAD
-    echo  2. 选择 %CD%\%OUT_DIR%\PDX.dll
-    echo  3. 输入命令: PDX
+    echo  AutoCAD ??????:
+    echo  1. ??AutoCAD ???????? NETLOAD
+    echo  2. ??? %CD%\%OUT_DIR%\PDX.dll
+    echo  3. ??????: PDX
     echo ============================================================
 ) else (
     echo.
     echo ============================================================
-    echo  [失败] 编译出错，请检查以上错误信息。
+    echo  [???] ????????????????????????
     echo ============================================================
 )
 

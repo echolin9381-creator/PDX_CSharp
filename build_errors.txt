@@ -1,0 +1,11 @@
+Microsoft (R) Visual C# Compiler version 4.8.9221.0
+for C# 5
+Copyright (C) Microsoft Corporation. All rights reserved.
+
+This compiler is provided as part of the Microsoft (R) .NET Framework, but only supports language versions up to C# 5, which is no longer the latest version. For compilers that support newer versions of the C# programming language, see http://go.microsoft.com/fwlink/?LinkID=533240
+
+error CS2001: 未能找到源文件“D:\app\cad18\AutoCAD”
+error CS2001: 未能找到源文件“2018\AcCoreMgd.dll\ /r:\D:\app\cad18\AutoCAD”
+error CS2001: 未能找到源文件“2018\AcDbMgd.dll\ /r:\D:\app\cad18\AutoCAD”
+fatal error CS2021: 文件名“2018\AcMgd.dll\ src\Models\BreakerRule.cs src\Models\LoopData.cs src\Models\MainCircuitData.cs src\Models\TopologyModels.cs src\Rules\RuleEngine.cs src\Calculation\CalculationEngine.cs src\Calculation\TopologyBuilder.cs src\Drawing\LayerHelper.cs src\Drawing\DrawingEngine.cs src\Services\PdxService.cs src\Core\Models\LayoutConfig.cs src\Core\Models\DiagramModel.cs src\Core\Models\TemplateDefinition.cs src\Core\Models\TopologyModel.cs src\Core\Interfaces\ICoreInterfaces.cs src\Core\Calculation\ElectricalCalculationEngine.cs src\Templates\VerticalBusTemplate.cs src\Templates\DualBusTemplate.cs src\Templates\TemplateRegistry.cs src\Infrastructure\AI\MockAiAnalyzer.cs src\Infrastructure\AI\GptAnalyzer.cs src\Infrastructure\Excel\CsvExcelTemplateBuilder.cs src\Infrastructure\Excel\CsvExcelImporter.cs src\Infrastructure\CAD\AutoCadRenderer.cs src\Infrastructure\CAD\ConsoleCadRenderer.cs src\Application\Services\DiagramGenerationService.cs src\Application\Services\ExcelWorkflowService.cs src\Application\Services\DirectEntryWorkflowService.cs src\Commands\PdxCommands.cs  ”太长或无效
+warning CS2008: 未指定源文件

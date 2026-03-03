@@ -7,6 +7,7 @@ using PDX_CSharp.Calculation;
 using PDX_CSharp.Drawing;
 using PDX_CSharp.Models;
 using PDX_CSharp.Rules;
+using AcadApp = Autodesk.AutoCAD.ApplicationServices.Application;
 
 namespace PDX_CSharp.Services
 {
@@ -16,7 +17,7 @@ namespace PDX_CSharp.Services
 
         public void Execute()
         {
-            Document doc = Application.DocumentManager.MdiActiveDocument;
+            Document doc = AcadApp.DocumentManager.MdiActiveDocument;
             if (doc == null) return;
             Editor   ed = doc.Editor;
             Database db = doc.Database;

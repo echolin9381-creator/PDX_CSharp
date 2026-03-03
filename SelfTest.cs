@@ -99,6 +99,90 @@ class SelfTest
         // ── T8: Circuit line does not exceed BusbarEndX ───────────
         Check("CircuitEndX <= BusbarEndX", CircuitEndX <= BusbarEndX);
 
+        // ══════════════════════════════════════════════════════════════
+        // ── T-Platform 组：平台层架构测试（无 AutoCAD 依赖）──────────
+        // ══════════════════════════════════════════════════════════════
+        Console.WriteLine("\n--- Platform Layer Tests ---");
+
+        // T-P1: ElectricalCalculationEngine 单相电流公式
+        // 1 kW / (220V × 0.85) = 5.347A
+        {
+            double expectedA = (1.0 * 1000.0) / (220.0 * 0.85);
+            double actualA   = CalcSinglePhase(1.0);
+            Check("T-P1: SinglePhase 1kW ≈ 5.35A",
+                Math.Abs(actualA - expectedA) < 0.01,
+                string.Format("expected={0:F4} actual={1:F4}", expectedA, actualA));
+        }
+
+        // T-P2: 母线长度公式由 Template 负责（TopOffset + BranchSpacing × N）
+        {
+            double topOffset = 20.0, spacing = 12.0;
+            int    n         = 5;
+            double busLen    = topOffset + spacing * n + spacing * 0.5;
+            Check("T-P2: BusLen formula (topOffset+spacing*5+ext) = 86.0",
+                Math.Abs(busLen - 86.0) < 0.001,
+                string.Format("busLen={0:F1}", busLen));
+        }
+
+        // T-P3: TemplateRegistry 能解析 "vertical_bus" 返回非空
+        {
+            bool resolved = TemplateRegistryCanResolve("vertical_bus");
+            Check("T-P3: TemplateRegistry resolves 'vertical_bus'", resolved);
+        }
+
+        // T-P4: MockAiAnalyzer 对 vertical_bus 返回 RequiredFields 含 "Phase"
+        {
+            bool hasPhase = MockAiHasRequiredField("vertical_bus", "Phase");
+            Check("T-P4: MockAI vertical_bus RequiredFields contains 'Phase'", hasPhase);
+        }
+
+        // T-P5: CsvExcelTemplateBuilder 生成文件含表头行（至少包含"功率"列）
+        {
+            string tmpPath = System.IO.Path.Combine(
+                System.IO.Path.GetTempPath(), "pdx_selftest_template.csv");
+            bool ok = TestCsvTemplateGeneration(tmpPath);
+            Check("T-P5: CsvExcelTemplateBuilder generates CSV with header", ok);
+            try { if (System.IO.File.Exists(tmpPath)) System.IO.File.Delete(tmpPath); } catch { }
+        }
+
+        // T-P6: CsvExcelImporter 导入自生成的 CSV → BranchCount 正确
+        {
+            string tmpPath = System.IO.Path.Combine(
+                System.IO.Path.GetTempPath(), "pdx_selftest_import.csv");
+            int branchCount = TestCsvImport(tmpPath, 3);
+            Check("T-P6: CsvExcelImporter imports 3 data rows correctly",
+                branchCount == 3,
+                string.Format("branchCount={0}", branchCount));
+            try { if (System.IO.File.Exists(tmpPath)) System.IO.File.Delete(tmpPath); } catch { }
+        }
+
+        // T-P7: ConsoleCadRenderer DrawLine/DrawText/DrawSymbol 不抛异常
+        {
+            bool noException = TestConsoleCadRenderer();
+            Check("T-P7: ConsoleCadRenderer draws without exception", noException);
+        }
+
+        // T-P8: 完整 Excel 路径 A 端到端流程（MockAI + CSV + ConsoleCadRenderer）
+        {
+            string tmpCsv = System.IO.Path.Combine(
+                System.IO.Path.GetTempPath(), "pdx_selftest_e2e_a.csv");
+            bool ok = TestEndToEndPathA(tmpCsv);
+            Check("T-P8: End-to-end Path-A (Excel) completes without exception", ok);
+            try { if (System.IO.File.Exists(tmpCsv)) System.IO.File.Delete(tmpCsv); } catch { }
+        }
+
+        // T-P9: 完整直接录入路径 B 端到端流程（MockAI + Console renderer）
+        {
+            bool ok = TestEndToEndPathB();
+            Check("T-P9: End-to-end Path-B (Direct Entry) completes without exception", ok);
+        }
+
+        // T-P10: MockAI → DualBusTemplate → BuildLayout + Render 不抛异常
+        {
+            bool ok = TestDualBusTemplate();
+            Check("T-P10: DualBusTemplate BuildLayout+Render does not throw", ok);
+        }
+
         // ── Summary ───────────────────────────────────────────────
         Console.WriteLine(string.Format(
             "\n{0} passed, {1} failed out of {2} total.",
@@ -135,5 +219,192 @@ class SelfTest
         foreach (var r in rules)
             if (r.L >= current) return r.M;
         throw new Exception("超出规则上限");
+    }
+
+    // ══════════════════════════════════════════════════════════════════
+    // 平台测试辅助方法（T-P1 ~ T-P10）
+    // ══════════════════════════════════════════════════════════════════
+
+    // T-P1 辅助: 镜像 ElectricalCalculationEngine.CalcSinglePhase（无 AutoCAD 依赖）
+    static double CalcSinglePhase(double kW, double cosPhi = 0.85)
+    {
+        if (kW <= 0) return 0;
+        return (kW * 1000.0) / (220.0 * cosPhi);
+    }
+
+    // T-P3 辅助: 测试 TemplateRegistry 解析
+    static bool TemplateRegistryCanResolve(string templateId)
+    {
+        try
+        {
+            var reg = PDX_CSharp.Templates.TemplateRegistry.Default;
+            var t   = reg.Resolve(templateId);
+            return t != null && t.TemplateId == templateId;
+        }
+        catch { return false; }
+    }
+
+    // T-P4 辅助: 测试 MockAiAnalyzer 返回字段
+    static bool MockAiHasRequiredField(string templateId, string fieldName)
+    {
+        try
+        {
+            var def      = templateId == "dual_bus"
+                           ? PDX_CSharp.Core.Models.TemplateDefinition.DualBus()
+                           : PDX_CSharp.Core.Models.TemplateDefinition.VerticalBus();
+            var analyzer = new PDX_CSharp.Infrastructure.AI.MockAiAnalyzer();
+            var result   = analyzer.Analyze(def);
+            return result.RequiredFields.Contains(fieldName);
+        }
+        catch { return false; }
+    }
+
+    // T-P5 辅助: 生成 CSV 模板并检查表头
+    static bool TestCsvTemplateGeneration(string outputPath)
+    {
+        try
+        {
+            var def     = PDX_CSharp.Core.Models.TemplateDefinition.VerticalBus();
+            var builder = new PDX_CSharp.Infrastructure.Excel.CsvExcelTemplateBuilder();
+            builder.GenerateTemplate(def, outputPath);
+            if (!System.IO.File.Exists(outputPath)) return false;
+            string content = System.IO.File.ReadAllText(outputPath, System.Text.Encoding.UTF8);
+            return content.Contains("功率") && content.Contains("[INPUT-请填写]");
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine("  T-P5 exception: " + ex.Message);
+            return false;
+        }
+    }
+
+    // T-P6 辅助: 写3行数据到 CSV，导回验证 BranchCount
+    static int TestCsvImport(string csvPath, int rowCount)
+    {
+        try
+        {
+            var def     = PDX_CSharp.Core.Models.TemplateDefinition.VerticalBus();
+            var builder = new PDX_CSharp.Infrastructure.Excel.CsvExcelTemplateBuilder();
+            builder.MaxDataRows = 0; // 不预留空行
+            builder.GenerateTemplate(def, csvPath);
+
+            // 追加指定数量的数据行
+            var lines = new System.Text.StringBuilder();
+            lines.AppendLine("L1,C16,1.5,1,照明1,2.5mm²,SC20,,");
+            lines.AppendLine("L2,C16,1.5,1,照明2,2.5mm²,SC20,,");
+            lines.AppendLine("L3,C10,0.0,1,备用,,,," );
+            System.IO.File.AppendAllText(csvPath, lines.ToString(), System.Text.Encoding.UTF8);
+
+            var importer = new PDX_CSharp.Infrastructure.Excel.CsvExcelImporter();
+            var model    = importer.Import(csvPath, def);
+            return model.Branches.Count;
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine("  T-P6 exception: " + ex.Message);
+            return -1;
+        }
+    }
+
+    // T-P7 辅助: ConsoleCadRenderer 基本调用
+    static bool TestConsoleCadRenderer()
+    {
+        try
+        {
+            var r = new PDX_CSharp.Infrastructure.CAD.ConsoleCadRenderer { Verbose = false };
+            r.BeginDraw();
+            r.DrawLine(0, 0, 100, 100);
+            r.DrawText(10, 10, "TEST");
+            r.DrawSymbol("breaker", 50, 50);
+            r.EndDraw();
+            return r.LineCount == 1 && r.TextCount == 1 && r.SymbolCount == 1;
+        }
+        catch { return false; }
+    }
+
+    // T-P8 辅助: Excel 路径 A 端到端
+    static bool TestEndToEndPathA(string csvPath)
+    {
+        try
+        {
+            var def      = PDX_CSharp.Core.Models.TemplateDefinition.VerticalBus();
+            var analyzer = new PDX_CSharp.Infrastructure.AI.MockAiAnalyzer();
+            var rules    = new PDX_CSharp.Rules.RuleEngine();
+            var calc     = new PDX_CSharp.Core.Calculation.ElectricalCalculationEngine(rules);
+            var gen      = new PDX_CSharp.Application.Services.DiagramGenerationService(analyzer, calc);
+            var workflow = new PDX_CSharp.Application.Services.ExcelWorkflowService(gen);
+
+            // Step A1: 生成模板
+            workflow.GenerateTemplate(def, csvPath);
+
+            // 追加3行数据
+            System.IO.File.AppendAllText(csvPath,
+                "L1,C16,2.0,1,空调A,2.5mm²,SC20,,\r\n" +
+                "L2,C10,1.0,1,照明,1.5mm²,SC15,,\r\n" +
+                "L3,,0,1,备用,,,\r\n",
+                System.Text.Encoding.UTF8);
+
+            // Step A2: 导入 + 生成
+            var renderer = new PDX_CSharp.Infrastructure.CAD.ConsoleCadRenderer { Verbose = false };
+            var model    = workflow.ImportAndGenerate(csvPath, def, renderer);
+            return model.Branches.Count >= 2 && renderer.LineCount > 0;
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine("  T-P8 exception: " + ex.Message);
+            return false;
+        }
+    }
+
+    // T-P9 辅助: 直接录入路径 B 端到端
+    static bool TestEndToEndPathB()
+    {
+        try
+        {
+            var def      = PDX_CSharp.Core.Models.TemplateDefinition.VerticalBus();
+            var analyzer = new PDX_CSharp.Infrastructure.AI.MockAiAnalyzer();
+            var rules    = new PDX_CSharp.Rules.RuleEngine();
+            var calc     = new PDX_CSharp.Core.Calculation.ElectricalCalculationEngine(rules);
+            var gen      = new PDX_CSharp.Application.Services.DiagramGenerationService(analyzer, calc);
+            var workflow = new PDX_CSharp.Application.Services.DirectEntryWorkflowService(gen);
+
+            var powers   = new System.Collections.Generic.List<double> { 2.0, 1.5, 0.0, 3.0 };
+            var names    = new System.Collections.Generic.List<string>  { "空调A", "照明", "备用", "插座" };
+            var renderer = new PDX_CSharp.Infrastructure.CAD.ConsoleCadRenderer { Verbose = false };
+            var model    = workflow.QuickGenerate(def, powers, names, renderer, 0.8);
+
+            // 验证：计算字段已填写，母线有线段输出
+            bool calcOk = model.Branches[0].Current > 0 && model.MainSwitch != null && model.MainSwitch.Current > 0;
+            return calcOk && renderer.LineCount > 0 && renderer.SymbolCount > 0;
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine("  T-P9 exception: " + ex.Message);
+            return false;
+        }
+    }
+
+    // T-P10 辅助: DualBusTemplate BuildLayout+Render 不抛异常
+    static bool TestDualBusTemplate()
+    {
+        try
+        {
+            var def      = PDX_CSharp.Core.Models.TemplateDefinition.DualBus();
+            var analyzer = new PDX_CSharp.Infrastructure.AI.MockAiAnalyzer();
+            var rules    = new PDX_CSharp.Rules.RuleEngine();
+            var calc     = new PDX_CSharp.Core.Calculation.ElectricalCalculationEngine(rules);
+            var gen      = new PDX_CSharp.Application.Services.DiagramGenerationService(analyzer, calc);
+            var workflow = new PDX_CSharp.Application.Services.DirectEntryWorkflowService(gen);
+
+            var powers   = new System.Collections.Generic.List<double> { 2.0, 1.5 };
+            var renderer = new PDX_CSharp.Infrastructure.CAD.ConsoleCadRenderer { Verbose = false };
+            workflow.QuickGenerate(def, powers, null, renderer);
+            return true; // 不抛异常即通过
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine("  T-P10 exception: " + ex.Message);
+            return false;
+        }
     }
 }

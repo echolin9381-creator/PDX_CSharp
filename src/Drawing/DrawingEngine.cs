@@ -3,53 +3,34 @@ using System.Collections.Generic;
 using Autodesk.AutoCAD.DatabaseServices;
 using Autodesk.AutoCAD.Geometry;
 using PDX_CSharp.Models;
+using PDX_CSharp.Calculation;
 
 namespace PDX_CSharp.Drawing
 {
     /// <summary>
-    /// 列式排版绘图引擎 - 严格固定列坐标，符合工业配电系统图标准。
-    ///
-    /// 坐标体系 (单位 mm):
-    ///   (0,0) = 主母线左端
-    ///   X 向右, Y 向下为负
-    ///
-    /// 固定列 X 坐标:
-    ///   ColNo=5  ColPhase=20  ColLoad=35  ColBreaker=60
-    ///   ColCurrent=85  ColCable=110  ColConduit=140
-    ///
-    /// 回路 Y = -20 - 12 * index
+    /// 列式排版绘图引擎 - 采用拓扑驱动模型绘制配电系统图。
+    /// 所有坐标与排版尺寸均受控于 LayoutConfig 配置。
     /// </summary>
     public class DrawingEngine
     {
-        // ── 主控尺寸 ──────────────────────────────────────────────────
-        private const double BusX        =   0.0;  // 竖向主母线 X = 0
-        private const double LoopStartY  = -20.0;  // 第一条回路 Y
-        private const double LoopYStep   = -12.0;  // 每条回路步进
-        private const double MainBrkY    =  -8.0;  // 主断路器行 Y
-
-        private const double CircuitEndX = 200.0;  // 回路水平线右端 (向右 200mm，容纳所有文字)
-        private const double BrkSymX     =  40.0;  // 断路器符号中心 X (调整位置以适应无左边框)
-        private const double BrkSymHalf  =   4.0;  // 断路器符号半高 (8mm)
-        private const double BrkSymHW    =   3.5;  // 断路器 X 半宽
-
-        // ── 固定列坐标 (规范强制) ─────────────────────────────────────
-        private const double ColNo      =   5.0;
-        private const double ColPhase   =  20.0;
-        private const double ColLoad    =  35.0;
-        private const double ColBreaker =  65.0;  // 65: clear of breaker symbol right edge (60.5)
-        private const double ColCurrent =  93.0;
-        private const double ColCable   = 118.0;
-        private const double ColConduit = 148.0;
-
-        private const double TextH      =   2.5;   // 文字高度
-        private const double TextUp     =   1.5;   // 文字在线上方偏移
         private const string LAYER      = "PDX_LAYER";
         private const string STYLE_NAME = "PDX_STYLE";
+
+        private readonly LayoutConfig _config;
+
+        public DrawingEngine(LayoutConfig config = null)
+        {
+            _config = config ?? LayoutConfig.Default;
+        }
 
         // ── 公开入口 ──────────────────────────────────────────────────
         public void Draw(Database db, List<LoopData> loops, MainCircuitData main)
         {
-            ValidateLayout(loops);
+            // 1. 采用拓扑驱动模型构建绘图数据
+            TopologyBuilder builder = new TopologyBuilder(_config);
+            BusBar busBarModel = builder.BuildModel(loops);
+            
+            ValidateLayout(_config, loops.Count);
 
             using (Transaction tr = db.TransactionManager.StartTransaction())
             {
@@ -62,11 +43,17 @@ namespace PDX_CSharp.Drawing
                     BlockTableRecord ms = tr.GetObject(
                         bt[BlockTableRecord.ModelSpace], OpenMode.ForWrite) as BlockTableRecord;
 
-                    DrawMainBusbar(tr, ms, loops.Count);
+                    // 2. 绘制主母线
+                    DrawMainBusbar(tr, ms, busBarModel);
+                    
+                    // 3. 绘制主断路器行信息
                     DrawMainBreakerRow(tr, ms, main, styleId);
 
-                    for (int i = 0; i < loops.Count; i++)
-                        DrawLoop(tr, ms, loops[i], i, styleId);
+                    // 4. 遍历 Branch 生成支路
+                    foreach (var branch in busBarModel.Branches)
+                    {
+                        DrawBranch(tr, ms, branch, styleId);
+                    }
 
                     tr.Commit();
                 }
@@ -75,16 +62,16 @@ namespace PDX_CSharp.Drawing
         }
 
         // ── 自检机制 ──────────────────────────────────────────────────
-        private static void ValidateLayout(List<LoopData> loops)
+        private static void ValidateLayout(LayoutConfig cfg, int loopCount)
         {
-            if (loops == null || loops.Count == 0)
+            if (loopCount == 0)
                 throw new InvalidOperationException("回路列表不能为空。");
-            if (loops.Count > 60)
+            if (loopCount > 60)
                 throw new InvalidOperationException(
-                    string.Format("回路数 {0} 超出上限 60。", loops.Count));
+                    string.Format("回路数 {0} 超出上限 60。", loopCount));
 
             // 检查列坐标：各列间距是否足够（最小 12mm）
-            double[] cols = { ColNo, ColPhase, ColLoad, ColBreaker, ColCurrent, ColCable, ColConduit };
+            double[] cols = { cfg.ColNo, cfg.ColPhase, cfg.ColPower, cfg.ColBreaker, cfg.ColCurrent, cfg.ColCable, cfg.ColPipe };
             for (int i = 1; i < cols.Length; i++)
             {
                 if (cols[i] - cols[i - 1] < 12.0)
@@ -93,133 +80,118 @@ namespace PDX_CSharp.Drawing
             }
 
             // 检查最右列是否超出支路线范围
-            if (ColConduit + 20.0 > CircuitEndX)
-                throw new InvalidOperationException("最右列文字超出主母线引出的 200mm 水平线范围。");
+            if (cfg.ColPipe + 20.0 > cfg.BranchLineLength)
+                throw new InvalidOperationException("最右列文字超出主母线引出的水平线范围。");
         }
 
-        // ── 主母线 ────────────────────────────────────────────────────
-        private void DrawMainBusbar(Transaction tr, BlockTableRecord ms, int loopCount)
+        // ── 统一绘制母线 ──────────────────────────────────────────────
+        private void DrawMainBusbar(Transaction tr, BlockTableRecord ms, BusBar busBar)
         {
-            double capY = LoopStartY + (loopCount - 1) * LoopYStep; // 最后一条回路的下方一点
-            
-            // 唯独一条贯通竖向母线
+            // 唯独一条贯通竖向母线 (从 Start 到 End，ToplogyBuilder 已经计算好长度)
             AddLine(tr, ms,
-                new Point3d(BusX, 0, 0),
-                new Point3d(BusX, capY - 6.0, 0),
+                new Point3d(busBar.Start.X, busBar.Start.Y, 0),
+                new Point3d(busBar.End.X, busBar.End.Y, 0),
                 LineWeight.LineWeight050);
         }
 
         // ── 主断路器行 ────────────────────────────────────────────────
         private void DrawMainBreakerRow(Transaction tr, BlockTableRecord ms, MainCircuitData main, ObjectId styleId)
         {
-            double ty = MainBrkY + TextUp;
+            double my = _config.MainBreakerY;
+            double ty = my + _config.TextUpOffset;
 
             // 进线从左侧引入竖母线
-            AddLine(tr, ms, new Point3d(BusX - 15, MainBrkY, 0), new Point3d(BusX - BrkSymHW - 1, MainBrkY, 0));
-            AddLine(tr, ms, new Point3d(BusX + BrkSymHW + 1, MainBrkY, 0), new Point3d(BusX + 15, MainBrkY, 0));
-            DrawBreakerSymbol(tr, ms, BusX, MainBrkY);
+            AddLine(tr, ms, new Point3d(_config.BusX - 15, my, 0), new Point3d(_config.BusX - _config.BreakerSymbolHalfWidth - 1, my, 0));
+            AddLine(tr, ms, new Point3d(_config.BusX + _config.BreakerSymbolHalfWidth + 1, my, 0), new Point3d(_config.BusX + 15, my, 0));
+            DrawBreakerSymbol(tr, ms, _config.BusX, my);
 
             // 主回路信息（固定列对齐）
             AddText(tr, ms,
                 string.Format("{0:F1}kW", main.TotalKW),
-                new Point3d(ColLoad, ty, 0), styleId);
+                new Point3d(_config.ColPower, ty, 0), styleId);
             AddText(tr, ms, main.MainBreaker,
-                new Point3d(ColBreaker, ty, 0), styleId);
+                new Point3d(_config.ColBreaker, ty, 0), styleId);
             AddText(tr, ms,
                 string.Format("{0:F1}A", main.Current),
-                new Point3d(ColCurrent, ty, 0), styleId);
+                new Point3d(_config.ColCurrent, ty, 0), styleId);
             AddText(tr, ms, main.MainCable,
-                new Point3d(ColCable, ty, 0), styleId);
+                new Point3d(_config.ColCable, ty, 0), styleId);
             AddText(tr, ms, main.MainConduit,
-                new Point3d(ColConduit, ty, 0), styleId);
+                new Point3d(_config.ColPipe, ty, 0), styleId);
 
             // 标注 KD
             AddText(tr, ms,
                 string.Format("KD={0:F2}", main.DemandFactor),
-                new Point3d(ColNo, MainBrkY - TextUp - TextH, 0), styleId);
+                new Point3d(_config.ColNo, my - _config.TextUpOffset - _config.TextHeight, 0), styleId);
         }
 
-        // ── 单条回路 ──────────────────────────────────────────────────
-        private void DrawLoop(Transaction tr, BlockTableRecord ms, LoopData loop, int index, ObjectId styleId)
+        // ── 单条支路 ──────────────────────────────────────────────────
+        private void DrawBranch(Transaction tr, BlockTableRecord ms, Branch branch, ObjectId styleId)
         {
-            double loopY = LoopStartY + index * LoopYStep;  // Y = -20 - 12*index
-            double ty    = loopY + TextUp;                   // 文字上移偏移
+            double by = branch.Y;
+            double ty = by + _config.TextUpOffset;
+            double brkX = _config.BreakerSymbolX;
 
             // 回路水平线：左段（母线至断路器左侧）
             AddLine(tr, ms,
-                new Point3d(BusX, loopY, 0),
-                new Point3d(BrkSymX - BrkSymHW - 1, loopY, 0));
+                new Point3d(_config.BusX, by, 0),
+                new Point3d(brkX - _config.BreakerSymbolHalfWidth - 1, by, 0));
 
             // 回路水平线：右段（断路器右侧至回路终点）
             AddLine(tr, ms,
-                new Point3d(BrkSymX + BrkSymHW + 1, loopY, 0),
-                new Point3d(CircuitEndX, loopY, 0));
+                new Point3d(brkX + _config.BreakerSymbolHalfWidth + 1, by, 0),
+                new Point3d(_config.BranchLineLength, by, 0));
 
             // 断路器符号
-            DrawBreakerSymbol(tr, ms, BrkSymX, loopY);
+            DrawBreakerSymbol(tr, ms, brkX, by);
 
-            // ── 固定列文字 (严格按规范 X 坐标，不允许漂移) ──────────
-            // Col 1: 回路编号
-            AddText(tr, ms, loop.LoopNo.ToString("D2"),
-                new Point3d(ColNo, ty, 0), styleId);
+            // ── 固定列文字 (严格按规范 X 坐标，绝对定位) ──────────
+            AddText(tr, ms, branch.LoopNo,
+                new Point3d(_config.ColNo, ty, 0), styleId);
 
-            // Col 2: 相序
-            AddText(tr, ms, loop.Phase,
-                new Point3d(ColPhase, ty, 0), styleId);
+            AddText(tr, ms, branch.Phase,
+                new Point3d(_config.ColPhase, ty, 0), styleId);
+                
+            AddText(tr, ms, branch.Breaker,
+                new Point3d(_config.ColBreaker, ty, 0), styleId);
 
-            // Col 3: 负荷（单设备 or 多设备）
-            AddText(tr, ms, FormatLoad(loop),
-                new Point3d(ColLoad, ty, 0), styleId);
+            AddText(tr, ms, branch.Power,
+                new Point3d(_config.ColPower, ty, 0), styleId);
 
-            // Col 4: 断路器型号
-            AddText(tr, ms, loop.Breaker,
-                new Point3d(ColBreaker, ty, 0), styleId);
+            AddText(tr, ms, branch.Current,
+                new Point3d(_config.ColCurrent, ty, 0), styleId);
 
-            // Col 5: 计算电流
-            AddText(tr, ms,
-                string.Format("{0:F1}A", loop.Current),
-                new Point3d(ColCurrent, ty, 0), styleId);
+            AddText(tr, ms, branch.Cable,
+                new Point3d(_config.ColCable, ty, 0), styleId);
 
-            // Col 6: 电缆规格
-            AddText(tr, ms, loop.Cable,
-                new Point3d(ColCable, ty, 0), styleId);
+            AddText(tr, ms, branch.Pipe,
+                new Point3d(_config.ColPipe, ty, 0), styleId);
 
-            // Col 7: 穿管规格
-            AddText(tr, ms, loop.Conduit,
-                new Point3d(ColConduit, ty, 0), styleId);
-
-            // 将设备名称放在最后，不占用前面的宽度
-            if (!string.IsNullOrEmpty(loop.DeviceName))
+            // 设备名称 (放置在最右侧，不再占用固定宽度)
+            if (!string.IsNullOrEmpty(branch.DeviceName))
             {
-               AddText(tr, ms, loop.DeviceName, new Point3d(ColConduit + 20, ty, 0), styleId); // 放电缆后面
+               AddText(tr, ms, branch.DeviceName, new Point3d(_config.ColPipe + 20, ty, 0), styleId);
             }
         }
 
-        // ── 断路器符号（X 型 + 竖向母线，8mm 高）────────────────────
+        // ── 断路器符号（X 型 + 竖向母线，高度动态按配置）────────────────
         private void DrawBreakerSymbol(Transaction tr, BlockTableRecord ms, double cx, double cy)
         {
-            // 竖向线（8mm 高）
+            double h = _config.BreakerSymbolHalfHeight;
+            double w = _config.BreakerSymbolHalfWidth;
+
+            // 竖向线
             AddLine(tr, ms,
-                new Point3d(cx, cy + BrkSymHalf, 0),
-                new Point3d(cx, cy - BrkSymHalf, 0));
+                new Point3d(cx, cy + h, 0),
+                new Point3d(cx, cy - h, 0));
 
             // X 型斜线
             AddLine(tr, ms,
-                new Point3d(cx - BrkSymHW, cy + BrkSymHW, 0),
-                new Point3d(cx + BrkSymHW, cy - BrkSymHW, 0));
+                new Point3d(cx - w, cy + w, 0),
+                new Point3d(cx + w, cy - w, 0));
             AddLine(tr, ms,
-                new Point3d(cx - BrkSymHW, cy - BrkSymHW, 0),
-                new Point3d(cx + BrkSymHW, cy + BrkSymHW, 0));
-        }
-
-        // ── 负荷格式化：单设备 / 多设备 / 备用 ──────────────────────
-        private static string FormatLoad(LoopData loop)
-        {
-            if (loop.LoadKW <= 0)
-                return "备用";
-            if (loop.DeviceCount > 1)
-                return string.Format("{0}x{1:F1}kW", loop.DeviceCount, loop.UnitLoadKW);
-            return string.Format("{0:F1}kW", loop.LoadKW);
+                new Point3d(cx - w, cy - w, 0),
+                new Point3d(cx + w, cy + w, 0));
         }
 
         // ── 基础绘图原语 ──────────────────────────────────────────────
@@ -262,7 +234,7 @@ namespace PDX_CSharp.Drawing
             var text = new DBText
             {
                 TextString     = content,
-                Height         = TextH,
+                Height         = _config.TextHeight,
                 Layer          = LAYER,
                 TextStyleId    = styleId,
                 HorizontalMode = TextHorizontalMode.TextLeft,
